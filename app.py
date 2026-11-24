@@ -9,8 +9,8 @@ from PIL import Image
 st.set_page_config(page_title="Clasificador de reciclaje")
 
 MODEL_DIR = Path("modelo_reciclaje_mobilenet")
-MODEL_PATH_H5 = MODEL_DIR / "waste_mobilenet.h5"
 MODEL_PATH_KERAS = MODEL_DIR / "waste_mobilenet.keras"
+MODEL_PATH_H5 = MODEL_DIR / "waste_mobilenet.h5"
 CLASSES_PATH = MODEL_DIR / "class_names.json"
 IMG_SIZE = (224, 224)
 
@@ -24,6 +24,14 @@ LABELS_ES = {
 }
 
 
+class TrueDivide(tf.keras.layers.Layer):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def call(self, x, y=None):
+        return x / y if y is not None else x
+
+
 def load_class_names() -> list[str]:
     if not CLASSES_PATH.exists():
         st.error(f"No se encontró el archivo de clases: {CLASSES_PATH}")
@@ -35,25 +43,28 @@ def load_class_names() -> list[str]:
 @st.cache_resource
 def load_model():
     model_path = None
-    if MODEL_PATH_H5.exists():
-        model_path = MODEL_PATH_H5
-    elif MODEL_PATH_KERAS.exists():
+    if MODEL_PATH_KERAS.exists():
         model_path = MODEL_PATH_KERAS
+    elif MODEL_PATH_H5.exists():
+        model_path = MODEL_PATH_H5
 
     if model_path is None:
         st.error(
             "No se encontró el modelo. Sube al repositorio la carpeta "
-            "'modelo_reciclaje_mobilenet' con 'waste_mobilenet.h5' "
-            "o 'waste_mobilenet.keras' y 'class_names.json'."
+            "'modelo_reciclaje_mobilenet' con 'waste_mobilenet.keras' "
+            "o 'waste_mobilenet.h5' y 'class_names.json'."
         )
         st.stop()
 
     try:
-        return tf.keras.models.load_model(model_path, compile=False)
+        return tf.keras.models.load_model(
+            model_path,
+            custom_objects={"TrueDivide": TrueDivide},
+            compile=False,
+        )
     except Exception as e:
         st.error(f"No se pudo cargar el modelo: {e}")
         st.stop()
-
 
 
 def prepare_image(image: Image.Image) -> np.ndarray:
@@ -61,7 +72,6 @@ def prepare_image(image: Image.Image) -> np.ndarray:
     arr = np.array(image, dtype=np.float32) / 255.0
     arr = np.expand_dims(arr, axis=0)
     return arr
-
 
 
 def predict_top3(model, class_names: list[str], image: Image.Image):
@@ -76,7 +86,7 @@ def predict_top3(model, class_names: list[str], image: Image.Image):
     return results
 
 
-st.title(" Clasificador de residuos")
+st.title("♻️ Clasificador de residuos")
 st.write("Sube una imagen y el modelo intentará identificar el tipo de residuo.")
 st.caption("Clases: cartón, vidrio, metal, papel, plástico y basura general.")
 
@@ -87,7 +97,7 @@ uploaded_file = st.file_uploader("Selecciona una imagen", type=["jpg", "jpeg", "
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(image, caption="Imagen cargada", use_column_width=True)
+    st.image(image, caption="Imagen cargada", use_container_width=True)
 
     top3 = predict_top3(model, class_names, image)
     principal = top3[0]
