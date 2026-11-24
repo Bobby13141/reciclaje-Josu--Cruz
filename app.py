@@ -50,12 +50,9 @@ def build_mobilenet_model(num_classes: int):
 @st.cache_resource
 def load_model(num_classes: int):
     if not MODEL_PATH_H5.exists() and not MODEL_PATH_KERAS.exists():
-        st.error(
-            "No se encontró el modelo en 'modelo_reciclaje_mobilenet'."
-        )
+        st.error("No se encontró el modelo en 'modelo_reciclaje_mobilenet'.")
         st.stop()
 
-    # Intento 1: cargar pesos sobre arquitectura limpia (evita errores de versión de Keras)
     if MODEL_PATH_H5.exists():
         try:
             model = build_mobilenet_model(num_classes)
@@ -64,7 +61,6 @@ def load_model(num_classes: int):
         except Exception:
             pass
 
-    # Intento 2: carga directa con safe_mode=False
     try:
         path = MODEL_PATH_KERAS if MODEL_PATH_KERAS.exists() else MODEL_PATH_H5
         return tf.keras.models.load_model(path, compile=False, safe_mode=False)
@@ -93,17 +89,24 @@ def predict_top3(model, class_names: list[str], image: Image.Image):
 
 
 st.title("♻️ Clasificador de residuos")
-st.write("Sube una imagen y el modelo intentará identificar el tipo de residuo.")
+st.subheader("Computación en la Nube - UTH 2026 - Josué Miguel Cruz Juánez")
+st.write("Toma una fotografía con la cámara o sube una imagen para identificar el tipo de residuo.")
 st.caption("Clases: cartón, vidrio, metal, papel, plástico y basura general.")
 
 class_names = load_class_names()
 model = load_model(len(class_names))
 
-uploaded_file = st.file_uploader("Selecciona una imagen", type=["jpg", "jpeg", "png"])
+metodo = st.radio("Elige cómo ingresar la imagen:", ["Subir archivo", "Tomar fotografía con cámara"], horizontal=True)
 
-if uploaded_file is not None:
-    image = Image.open(uploaded_file)
-    st.image(image, caption="Imagen cargada", use_container_width=True)
+imagen_fuente = None
+if metodo == "Subir archivo":
+    imagen_fuente = st.file_uploader("Selecciona una imagen", type=["jpg", "jpeg", "png"])
+else:
+    imagen_fuente = st.camera_input("Captura una fotografía del residuo")
+
+if imagen_fuente is not None:
+    image = Image.open(imagen_fuente)
+    st.image(image, caption="Imagen analizada", use_container_width=True)
 
     top3 = predict_top3(model, class_names, image)
     principal = top3[0]
@@ -122,4 +125,4 @@ if uploaded_file is not None:
         label_es = LABELS_ES.get(raw_label, raw_label)
         st.progress(float(preds[i]), text=f"{label_es}: {preds[i]*100:.2f}%")
 else:
-    st.info("Carga una imagen para comenzar.")
+    st.info("Carga o captura una imagen para comenzar.")
