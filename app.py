@@ -9,8 +9,8 @@ from PIL import Image
 st.set_page_config(page_title="Clasificador de reciclaje")
 
 MODEL_DIR = Path("modelo_reciclaje_mobilenet")
-MODEL_PATH_KERAS = MODEL_DIR / "waste_mobilenet.keras"
 MODEL_PATH_H5 = MODEL_DIR / "waste_mobilenet.h5"
+MODEL_PATH_KERAS = MODEL_DIR / "waste_mobilenet.keras"
 CLASSES_PATH = MODEL_DIR / "class_names.json"
 IMG_SIZE = (224, 224)
 
@@ -24,14 +24,6 @@ LABELS_ES = {
 }
 
 
-class TrueDivide(tf.keras.layers.Layer):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    def call(self, x, y=None):
-        return x / y if y is not None else x
-
-
 def load_class_names() -> list[str]:
     if not CLASSES_PATH.exists():
         st.error(f"No se encontró el archivo de clases: {CLASSES_PATH}")
@@ -40,28 +32,42 @@ def load_class_names() -> list[str]:
         return json.load(f)
 
 
-@st.cache_resource
-def load_model():
-    model_path = None
-    if MODEL_PATH_KERAS.exists():
-        model_path = MODEL_PATH_KERAS
-    elif MODEL_PATH_H5.exists():
-        model_path = MODEL_PATH_H5
+def build_mobilenet_model(num_classes: int):
+    base_model = tf.keras.applications.MobileNetV2(
+        input_shape=(224, 224, 3),
+        include_top=False,
+        weights=None,
+    )
+    inputs = tf.keras.Input(shape=(224, 224, 3))
+    x = tf.keras.applications.mobilenet_v2.preprocess_input(inputs * 255.0)
+    x = base_model(x, training=False)
+    x = tf.keras.layers.GlobalAveragePooling2D()(x)
+    x = tf.keras.layers.Dropout(0.2)(x)
+    outputs = tf.keras.layers.Dense(num_classes, activation="softmax")(x)
+    return tf.keras.Model(inputs, outputs)
 
-    if model_path is None:
+
+@st.cache_resource
+def load_model(num_classes: int):
+    if not MODEL_PATH_H5.exists() and not MODEL_PATH_KERAS.exists():
         st.error(
-            "No se encontró el modelo. Sube al repositorio la carpeta "
-            "'modelo_reciclaje_mobilenet' con 'waste_mobilenet.keras' "
-            "o 'waste_mobilenet.h5' y 'class_names.json'."
+            "No se encontró el modelo en 'modelo_reciclaje_mobilenet'."
         )
         st.stop()
 
+    # Intento 1: cargar pesos sobre arquitectura limpia (evita errores de versión de Keras)
+    if MODEL_PATH_H5.exists():
+        try:
+            model = build_mobilenet_model(num_classes)
+            model.load_weights(MODEL_PATH_H5)
+            return model
+        except Exception:
+            pass
+
+    # Intento 2: carga directa con safe_mode=False
     try:
-        return tf.keras.models.load_model(
-            model_path,
-            custom_objects={"TrueDivide": TrueDivide},
-            compile=False,
-        )
+        path = MODEL_PATH_KERAS if MODEL_PATH_KERAS.exists() else MODEL_PATH_H5
+        return tf.keras.models.load_model(path, compile=False, safe_mode=False)
     except Exception as e:
         st.error(f"No se pudo cargar el modelo: {e}")
         st.stop()
@@ -91,7 +97,7 @@ st.write("Sube una imagen y el modelo intentará identificar el tipo de residuo.
 st.caption("Clases: cartón, vidrio, metal, papel, plástico y basura general.")
 
 class_names = load_class_names()
-model = load_model()
+model = load_model(len(class_names))
 
 uploaded_file = st.file_uploader("Selecciona una imagen", type=["jpg", "jpeg", "png"])
 
